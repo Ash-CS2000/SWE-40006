@@ -1,0 +1,20 @@
+# Files Docker should never send into the image build.
+
+# Secrets: settings are passed in with -e when the container starts
+.env
+.env.*
+
+# Installed inside the image by "npm ci" instead
+node_modules
+npm-debug.log*
+
+# Not needed to run the app
+.git
+.github
+.gitignore
+.vscode
+.azure
+.DS_Store
+README.md
+Dockerfile
+.dockerignore

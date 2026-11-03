@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sign in · TaskFlow</title>
+  <script>
+    try {
+      var t = localStorage.getItem('theme');
+      if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+    } catch (e) {}
+  </script>
+  <link rel="stylesheet" href="/css/styles.css">
+</head>
+<body>
+  <main class="auth-page">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="rail-logo" aria-hidden="true">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+        </div>
+        <h1>TaskFlow</h1>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <button class="tab active" type="button" data-tab="login" role="tab">Sign in</button>
+        <button class="tab" type="button" data-tab="register" role="tab">Create account</button>
+      </div>
+
+      <form id="login-form" class="form">
+        <label class="field"><span>Email</span>
+          <input type="email" name="email" autocomplete="email" required>
+        </label>
+        <label class="field"><span>Password</span>
+          <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+        <p class="form-error" hidden></p>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </form>
+
+      <form id="register-form" class="form" hidden>
+        <label class="field"><span>Name</span>
+          <input name="name" autocomplete="name" maxlength="100" required>
+        </label>
+        <label class="field"><span>Email</span>
+          <input type="email" name="email" autocomplete="email" required>
+        </label>
+        <label class="field"><span>Password</span>
+          <input type="password" name="password" autocomplete="new-password" minlength="8" required>
+          <small class="muted">At least 8 characters</small>
+        </label>
+        <p class="form-error" hidden></p>
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="/js/login.js"></script>
+</body>
+</html>
