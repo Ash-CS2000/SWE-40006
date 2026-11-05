@@ -48,10 +48,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Member 2 supplies npm test with unit and PostgreSQL integration tests.
-      # A missing script or failed test must block the release.
-      - name: Run unit and integration tests
-        run: npm test
+      - name: Run unit tests
+        run: node --test tests/unit.test.js
+
+      - name: Run PostgreSQL integration tests
+        env:
+          NODE_ENV: test
+        run: node --test tests/integration.test.js
 
       - name: Build image with source commit tag
         run: |
@@ -81,6 +84,12 @@ jobs:
           JS
           curl --fail --silent --show-error --max-time 10 \
             http://127.0.0.1:3000/login > /dev/null
+
+      - name: Run container smoke tests
+        env:
+          SMOKE_BASE_URL: http://127.0.0.1:3000
+          SMOKE_EXPECTED_VERSION: ${{ github.sha }}
+        run: node --test tests/smoke-test.js
 
       # Push the same image that passed the checks above.
       - name: Publish tested image to private Docker Hub

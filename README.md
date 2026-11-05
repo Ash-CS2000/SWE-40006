@@ -70,7 +70,7 @@ docker run -p 3000:3000 \
 - **Health check:** `GET /health` returns `200 {"status":"ok","database":"connected","version":"..."}` when the app can reach PostgreSQL, and `503` when it can't. It needs no login.
 - **Startup:** `npm start` (runs `node src/server.js`). If the database isn't ready yet, the app retries the connection 10 times, 3 seconds apart.
 - **Data persistence:** all data (users, tasks, sessions) lives in PostgreSQL. Redeploying the app container doesn't lose data as long as the database is kept.
-- **Testing:** there are **no automated tests yet**, and no `npm test` script. `src/app.js` exports the Express app without starting the server, so tests can import it (e.g. with Supertest). Validation logic in `src/utils/validation.js` is made of pure functions for unit tests. Integration tests should call `initDb()` from `src/db.js` first to create the tables, and `pool.end()` at the end so the test run can exit.
+- **Testing:** Unit and PostgreSQL integration tests are in `tests/`. CI runs them directly with Node's test runner, followed by smoke tests against the built container. See the continuous integration guide below.
 
 ## Project structure
 
@@ -125,7 +125,7 @@ temporary PostgreSQL 16 database on an Ubuntu runner.
 ### Pipeline stages
 
 1. Install the locked dependencies using `npm ci`.
-2. Run `npm test` against the temporary `taskflow_test` database.
+2. Run unit tests and integration tests against the temporary `taskflow_test` database.
 3. Build the Docker image with the full source commit SHA as its tag and revision label.
 4. Start the image and check that `/health` reports a database connection and the
    expected commit SHA, then check that the login page responds successfully.
@@ -137,17 +137,45 @@ other branches, and manual runs perform validation only.
 
 ### Test requirements
 
-Define an `npm test` script in `package.json` that runs the unit and PostgreSQL
-integration tests. The test suite must use the supplied `DATABASE_URL`,
-initialize its schema as needed, close database connections when finished, and
-exit with a nonzero status when a test fails.
+CI runs the following commands in separate steps.
 
-The current project has no `test` script, so CI will fail at that step until
-the suite is added. The workflow also supplies `SESSION_SECRET` and
-`APP_VERSION`. Its temporary database is created for each job.
+```bash
+node --test tests/unit.test.js
+node --test tests/integration.test.js
+node --test tests/smoke-test.js
+```
 
-The container checks verify startup, database connectivity, source version, and
-the login page. Add functional smoke checks before publication when available.
+The integration step sets `NODE_ENV=test` and uses the job's `DATABASE_URL`
+for a temporary PostgreSQL 16 service. The tests initialize the schema and close
+their connections. The service is discarded after the job.
+
+After building and starting the image, CI supplies `SMOKE_BASE_URL` and
+`SMOKE_EXPECTED_VERSION` to the smoke suite. It checks health, source version,
+the login page, account registration, and task creation and retrieval.
+
+For local integration tests on macOS or Linux, run from the project directory.
+
+```bash
+npm ci
+docker compose -p taskflow-member2 -f compose.test.yml up -d --wait
+NODE_ENV=test \
+DATABASE_URL=postgres://taskflow_test:taskflow_test_password@127.0.0.1:55432/taskflow_test \
+SESSION_SECRET=local-integration-test-only \
+node --test tests/integration.test.js
+docker compose -p taskflow-member2 -f compose.test.yml down -v
+```
+
+For local container smoke tests, the default URL is `http://127.0.0.1:3030`
+and the expected version is `member2-smoke`.
+
+```bash
+docker compose -p taskflow-smoke -f compose.smoke.yml up -d --build --wait
+node --test tests/smoke-test.js
+docker compose -p taskflow-smoke -f compose.smoke.yml down -v
+```
+
+Run the cleanup commands after testing, including when a test fails. These
+Compose environments contain disposable test data.
 
 ### Configure Docker Hub and GitHub
 
