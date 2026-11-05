@@ -1,0 +1,33 @@
+# Disposable local smoke-test environment: never use production credentials.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: smoke_test
+      POSTGRES_PASSWORD: smoke_test_password
+      POSTGRES_DB: taskflow_smoke
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smoke_test -d taskflow_smoke"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://smoke_test:smoke_test_password@db:5432/taskflow_smoke
+      SESSION_SECRET: test-only-smoke-secret-never-use-in-production
+      APP_VERSION: member2-smoke
+      PORT: 3000
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:3030:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/health >/dev/null || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
