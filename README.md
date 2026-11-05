@@ -115,3 +115,86 @@ All `/api` routes require a signed-in session, except register, login and logout
 | GET / PATCH | `/api/settings` | Get / update theme |
 | GET | `/api/stats` | Home page numbers |
 | GET | `/health` | Health check |
+
+## Continuous integration
+
+The GitHub Actions workflow in `.github/workflows/ci.yml` runs on every branch
+push, pull requests targeting `main`, and manual runs. It uses Node.js 22 and a
+temporary PostgreSQL 16 database on an Ubuntu runner.
+
+### Pipeline stages
+
+1. Install the locked dependencies using `npm ci`.
+2. Run `npm test` against the temporary `taskflow_test` database.
+3. Build the Docker image with the full source commit SHA as its tag and revision label.
+4. Start the image and check that `/health` reports a database connection and the
+   expected commit SHA, then check that the login page responds successfully.
+5. Publish the tested image to Docker Hub after a successful push to `main`.
+
+A failed step blocks subsequent build, verification, and publication steps.
+Container logs and cleanup run even after a failure. Pull requests, pushes to
+other branches, and manual runs perform validation only.
+
+### Test requirements
+
+Define an `npm test` script in `package.json` that runs the unit and PostgreSQL
+integration tests. The test suite must use the supplied `DATABASE_URL`,
+initialize its schema as needed, close database connections when finished, and
+exit with a nonzero status when a test fails.
+
+The current project has no `test` script, so CI will fail at that step until
+the suite is added. The workflow also supplies `SESSION_SECRET` and
+`APP_VERSION`. Its temporary database is created for each job.
+
+The container checks verify startup, database connectivity, source version, and
+the login page. Add functional smoke checks before publication when available.
+
+### Configure Docker Hub and GitHub
+
+1. Use the Docker Hub repository `khantthuaung/taskflow` and confirm its visibility is **Private**.
+2. Create a Docker Hub access token with **Read & Write** permission for an
+   account that can push to the repository.
+3. Open the GitHub repository's **Settings → Secrets and variables → Actions**.
+4. Add the following repository variables under **Variables** and the token under
+   **Secrets**.
+
+| Type | Name | Value |
+|---|---|---|
+| Variable | `DOCKERHUB_IMAGE` | `khantthuaung/taskflow` |
+| Variable | `DOCKERHUB_USERNAME` | `khantthuaung` |
+| Secret | `DOCKERHUB_TOKEN` | Docker Hub access token with Read & Write permission |
+
+Set repository visibility to private in Docker Hub. Keep the access token in
+GitHub Actions secrets.
+
+### Run and review CI
+
+1. Commit and push your changes to a feature branch.
+2. Open the repository's **Actions** tab and select **TaskFlow CI**.
+3. Review each step's output. Fix failed tests or container checks and push again.
+4. Open a pull request targeting `main` and review its CI result.
+5. Merge the reviewed, passing changes into `main`. The resulting push runs the
+   pipeline again and publishes the image if every required step succeeds.
+
+To start a manual validation run, select **Run workflow** in the Actions tab once
+the workflow is available on the default branch. Manual runs do not publish images.
+
+### Verify the published image
+
+Find the image in the private Docker Hub repository and confirm that its tag
+matches the full commit SHA from the successful push run.
+
+```text
+khantthuaung/taskflow:<full-commit-sha>
+```
+
+Deployment should use this exact image reference and depend on successful
+publication. The default Ubuntu runner builds a Linux AMD64 image, so the
+deployment host must support that architecture. Set `APP_VERSION` to the same
+commit SHA when starting the deployed container.
+
+Retain the Actions run, Docker Hub tag, and health response as release evidence.
+To verify that tests block publication, use a controlled, team-approved test on
+a publish-eligible push and confirm that a failed test skips publication.
+A failed pull request run alone does not establish this, because pull requests
+are excluded from publication by the workflow condition.
