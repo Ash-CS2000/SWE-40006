@@ -6,7 +6,8 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { randomUUID } = require('node:crypto');
 
-const BASE_URL = 'http://127.0.0.1:3030';
+const BASE_URL = process.env.SMOKE_BASE_URL || 'http://127.0.0.1:3030';
+const EXPECTED_VERSION = process.env.SMOKE_EXPECTED_VERSION || 'member2-smoke';
 
 async function request(method, path, body, sessionCookie) {
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -40,7 +41,7 @@ test('TC-S01: Docker container starts and TaskFlow can use PostgreSQL', async ()
   assert.equal(health.status, 200, 'Application health endpoint should return HTTP 200');
   assert.equal(health.data.status, 'ok');
   assert.equal(health.data.database, 'connected');
-  assert.equal(health.data.version, 'member2-smoke');
+  assert.equal(health.data.version, EXPECTED_VERSION);
 
   // 2. Verify the frontend is served by the running application container.
   const login = await request('GET', '/login');
