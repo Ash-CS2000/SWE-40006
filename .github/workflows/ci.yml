@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: node --test tests/unit.test.js
+        run: node --test tests/unit.test.js tests/demo-failure.test.js
 
       - name: Run PostgreSQL integration tests
         env:
