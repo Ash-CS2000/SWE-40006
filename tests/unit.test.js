@@ -24,6 +24,15 @@ test('TC-U03: rejects invalid task IDs', () => {
   }
 });
 
+const test = require('node:test');
+const assert = require('node:assert/strict');
+
+test('Intentional failure: pipeline demo', () => {
+  assert.fail('Deliberate failure to verify CI blocks deployment');
+});
+
+
+
 // TC-U04: prevent unsupported priority values
 test('TC-U04: task priority accepts only low, medium or high', () => {
   for (const priority of ['low', 'medium', 'high']) {
