@@ -49,7 +49,7 @@ jobs:
         run: npm ci
 
       - name: Run unit tests
-        run: node --test tests/unit.test.js
+        run: node --test tests/unit.test.js tests/demo-failure.test.js
 
       - name: Run PostgreSQL integration tests
         env:
@@ -215,6 +215,7 @@ jobs:
           SMOKE_BASE_URL: ${{ vars.STAGING_URL }}
           SMOKE_EXPECTED_VERSION: ${{ github.sha }}
         run: node --test tests/smoke-test.js
+        
 
   deploy:
     needs: deploy-staging
