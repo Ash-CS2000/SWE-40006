@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Keep staging on the release being reviewed while user testing awaits approval.
+concurrency:
+  group: taskflow-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   test-build-publish:
     runs-on: ubuntu-latest
@@ -216,8 +221,63 @@ jobs:
           SMOKE_EXPECTED_VERSION: ${{ github.sha }}
         run: node --test tests/smoke-test.js
 
-  deploy:
+      - name: Prepare staging user testing
+        shell: python
+        run: |
+          import os
+          url = os.environ["STAGING_URL"].rstrip("/")
+          sha = os.environ["GITHUB_SHA"]
+          summary = (
+              "## Staging is ready for user testing\n\n"
+              f"- Commit: `{sha}`\n"
+              f"- [Open staging]({url}/login)\n"
+              f"- [Check the deployed version]({url}/health)\n"
+              "\nTest registration/login, task creation, editing, completion, "
+              "persistence after refresh and login, deletion, and rejection of an empty title.\n\n"
+              "Record the tester, commit, actual results and screenshots before approving `manual-testing`. "
+              "Reject the deployment if a required test fails.\n"
+          )
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as output:
+              output.write(summary)
+
+  # Configure Required reviewers for this environment in repository Settings.
+  # This job needs no AWS credentials, so deployment OIDC subjects stay unchanged.
+  manual-testing:
+    name: Approve staging user testing
     needs: deploy-staging
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    environment:
+      name: manual-testing
+      url: ${{ vars.STAGING_URL }}
+    env:
+      STAGING_URL: ${{ vars.STAGING_URL }}
+    steps:
+      - name: Verify approved staging version
+        shell: python
+        run: |
+          import json, os
+          from urllib.request import urlopen
+
+          url = os.environ["STAGING_URL"].rstrip("/") + "/health"
+          expected = os.environ["GITHUB_SHA"]
+          with urlopen(url, timeout=15) as response:
+              if response.status != 200:
+                  raise SystemExit(f"Staging returned HTTP {response.status}")
+              health = json.load(response)
+          if not isinstance(health, dict):
+              raise SystemExit("Staging health response must be a JSON object")
+          if health.get("status") != "ok" or health.get("database") != "connected":
+              raise SystemExit("Approved staging application or database is unhealthy")
+          if health.get("version") != expected:
+              raise SystemExit("Staging version changed; test and approve the current release again")
+          print("Approved staging version verified:", expected)
+
+  deploy:
+    needs: manual-testing
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
