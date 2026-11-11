@@ -24,7 +24,13 @@ const ICONS = {
   more: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="12" cy="19" r="1.8"/></svg>',
   edit: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L19 9l-4-4L4 16v4z"/><path d="M13.5 6.5l4 4"/></svg>',
   steps: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11M4 6h.01M4 12h.01M4 18h.01"/></svg>',
+  upload: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V4M7 9l5-5 5 5"/><path d="M4 15v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4"/></svg>',
+  file: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8z"/><path d="M14 3v5h5"/></svg>',
 };
+
+// Evidence uploads: must match the limits in src/routes/evidence.js
+const EVIDENCE_MAX_BYTES = 5 * 1024 * 1024;
+const EVIDENCE_ACCEPT = 'application/pdf,image/png,image/jpeg,image/gif,image/webp';
 
 const routes = {
   home: { title: 'Home', render: renderHome },
@@ -269,13 +275,34 @@ function taskRowHtml(task) {
       <div class="task-main">
         <div class="task-title">${escapeHtml(task.title)}</div>
         ${meta.length ? `<div class="task-meta">${meta.join('')}</div>` : ''}
+        ${evidenceStripHtml(task.evidence_files)}
       </div>
       ${task.completed ? '<span class="done-badge">Done</span>' : `<span class="priority priority-${task.priority}">${PRIORITY_LABELS[task.priority]}</span>`}
       ${menuButtonHtml()}
     </li>`;
 }
 
+// Evidence shown on the task row: image thumbnails and PDF chips. Each one is
+// a link that opens the file in a new tab.
+const EVIDENCE_STRIP_MAX = 4;
+function evidenceStripHtml(files) {
+  if (!files || !files.length) return '';
+  const shown = files.slice(0, EVIDENCE_STRIP_MAX).map((f) => {
+    const url = `/api/evidence/${f.id}`;
+    const name = escapeHtml(f.filename);
+    return f.mime_type.startsWith('image/')
+      ? `<a class="evidence-chip evidence-chip-img" href="${url}" target="_blank" rel="noopener" title="${name}"><img src="${url}" alt="${name}" loading="lazy"></a>`
+      : `<a class="evidence-chip" href="${url}" target="_blank" rel="noopener" title="${name}">${ICONS.file}<span>${name}</span></a>`;
+  });
+  const more = files.length - EVIDENCE_STRIP_MAX;
+  if (more > 0) shown.push(`<span class="evidence-more muted small">+${more} more</span>`);
+  return `<div class="evidence-strip">${shown.join('')}</div>`;
+}
+
 function onTaskListClick(e) {
+  // Clicking an evidence file opens it, instead of opening the task panel
+  if (e.target.closest('.evidence-chip')) return;
+
   const row = e.target.closest('.task-row');
   if (!row) return;
 
@@ -311,6 +338,7 @@ function openRowMenu(button, row) {
   menu.dataset.taskId = String(id);
   menu.innerHTML = `
     <button type="button" role="menuitem" data-menu="edit">${ICONS.edit}Edit</button>
+    <button type="button" role="menuitem" data-menu="evidence">${ICONS.upload}Upload evidence</button>
     <button type="button" role="menuitem" data-menu="complete">${ICONS.check}${isDone ? 'Mark as not done' : 'Mark as complete'}</button>
     <div class="menu-sep" role="separator"></div>
     <button type="button" role="menuitem" class="danger" data-menu="delete">${ICONS.trash}Delete</button>`;
@@ -329,9 +357,33 @@ function openRowMenu(button, row) {
     if (!item) return;
     closeRowMenu();
     if (item.dataset.menu === 'edit') safely(() => openTaskPanel(id));
+    if (item.dataset.menu === 'evidence') pickAndUploadEvidence(id);
     if (item.dataset.menu === 'complete') completeWithUndo(id, !isDone);
     if (item.dataset.menu === 'delete') deleteTask(id, title);
   };
+}
+
+// Opens the file chooser, uploads the chosen file to the task, then opens the
+// task's details panel so the uploaded evidence is visible.
+function pickAndUploadEvidence(taskId) {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = EVIDENCE_ACCEPT;
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    if (!file) return;
+    // Quick checks in the browser; the server checks again, since these can be bypassed.
+    if (file.size > EVIDENCE_MAX_BYTES) return toast('File must be 5 MB or smaller', true);
+    if (!EVIDENCE_ACCEPT.split(',').includes(file.type)) return toast('Only PDF or image files are allowed', true);
+    toast('Uploading…');
+    safely(async () => {
+      await uploadFile(`/tasks/${taskId}/evidence`, file);
+      toast('Evidence uploaded');
+      await refresh(); // redraw the list so the new file shows on the task
+      await openTaskPanel(taskId);
+    });
+  });
+  input.click(); // must run straight from the menu click, or the browser blocks the file chooser
 }
 
 // Marks a task complete (or not). The change happens at once, with an Undo
@@ -656,7 +708,7 @@ function closePanel() {
 async function openTaskPanel(id) {
   const task = id
     ? await api(`/tasks/${id}`)
-    : { title: '', description: '', due_date: null, priority: 'medium', category_id: null, subtasks: [] };
+    : { title: '', description: '', due_date: null, priority: 'medium', category_id: null, subtasks: [], evidence: [] };
 
   const panel = $('#panel');
   panel.dataset.taskId = id ? String(id) : '';
@@ -694,8 +746,10 @@ async function openTaskPanel(id) {
         </label>
       </form>
 
+      <section class="evidence" id="evidence"></section>
+
       <section class="subtasks" id="subtasks">
-        ${id ? '' : '<p class="muted small">Save the task first, then you can break it into steps.</p>'}
+        ${id ? '' : '<p class="muted small">Create the task first, then you can break it into steps.</p>'}
       </section>
     </div>
 
@@ -707,7 +761,12 @@ async function openTaskPanel(id) {
   `;
   panel.hidden = false;
 
+  // For a new task there's no id to attach files to yet, so chosen files wait
+  // here and are uploaded right after the task is created.
+  const pendingEvidence = [];
+
   if (id) renderSubtasks(id, task.subtasks);
+  renderEvidence(id, task.evidence, pendingEvidence);
   if (!id) $('#task-form [name="title"]').focus();
 
   // Countdown under the Due field, updated as the date is changed
@@ -737,11 +796,27 @@ async function openTaskPanel(id) {
       category_id: data.get('category_id') || null,
     };
     safely(async () => {
-      if (id) await api(`/tasks/${id}`, { method: 'PATCH', body });
-      else await api('/tasks', { method: 'POST', body });
-      toast(id ? 'Task saved' : 'Task created');
-      closePanel();
-      await refresh();
+      if (id) {
+        await api(`/tasks/${id}`, { method: 'PATCH', body });
+        toast('Task saved');
+        closePanel();
+        await refresh();
+      } else {
+        // Keep the panel open on the new task so steps and evidence can be added straight away
+        const created = await api('/tasks', { method: 'POST', body });
+        let uploadError = null;
+        for (const file of pendingEvidence) {
+          try {
+            await uploadFile(`/tasks/${created.id}/evidence`, file);
+          } catch (err) {
+            uploadError = err; // the task exists now; open it so the upload can be retried
+          }
+        }
+        if (uploadError) toast(`Task created, but an upload failed: ${uploadError.message}`, true);
+        else toast(pendingEvidence.length ? 'Task created with evidence' : 'Task created');
+        await refresh();
+        await openTaskPanel(created.id);
+      }
     });
   });
 }
@@ -805,6 +880,104 @@ function renderSubtasks(taskId, subtasks) {
         await reload();
       });
     }
+  });
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// Evidence section of the task panel. With a taskId, files upload straight
+// away. Without one (new task), they're kept in `pending` until "Create task".
+function renderEvidence(taskId, evidence, pending) {
+  const container = $('#evidence');
+  if (!container) return; // panel was closed or switched to another task
+
+  const count = taskId ? evidence.length : pending.length;
+  container.innerHTML = `
+    <h3>Evidence ${count ? `<span class="muted">${count}</span>` : ''}</h3>
+    <ul class="evidence-list">
+      ${taskId ? '' : pending.map((file, index) => `
+        <li class="evidence-item" data-index="${index}">
+          <span class="evidence-thumb">${ICONS.file}</span>
+          <div class="evidence-info">
+            <span>${escapeHtml(file.name)}</span>
+            <span class="muted small">${formatBytes(file.size)} · uploads when the task is created</span>
+          </div>
+          <button class="icon-btn danger" data-action="delete-evidence" aria-label="Remove file">${ICONS.trash}</button>
+        </li>`).join('')}
+      ${!taskId ? '' : evidence.map((e) => `
+        <li class="evidence-item" data-id="${e.id}">
+          <a class="evidence-thumb" href="/api/evidence/${e.id}" target="_blank" rel="noopener" tabindex="-1" aria-hidden="true">
+            ${e.mime_type.startsWith('image/') ? `<img src="/api/evidence/${e.id}" alt="" loading="lazy">` : ICONS.file}
+          </a>
+          <div class="evidence-info">
+            <a href="/api/evidence/${e.id}" target="_blank" rel="noopener">${escapeHtml(e.filename)}</a>
+            <span class="muted small">${formatBytes(e.size_bytes)}</span>
+          </div>
+          <button class="icon-btn danger" data-action="delete-evidence" aria-label="Delete evidence">${ICONS.trash}</button>
+        </li>`).join('')}
+    </ul>
+    <input type="file" id="evidence-input" accept="${EVIDENCE_ACCEPT}" hidden>
+    <button class="btn" type="button" id="evidence-upload">${ICONS.upload}<span>Upload evidence</span></button>
+    <p class="muted small evidence-hint">PDF or image, up to 5 MB.</p>
+  `;
+
+  const reload = async () => {
+    if (!taskId) return renderEvidence(taskId, evidence, pending);
+    const task = await api(`/tasks/${taskId}`);
+    renderEvidence(taskId, task.evidence, pending);
+    await refresh(); // keep the evidence shown on the task row in sync
+  };
+
+  const input = container.querySelector('#evidence-input');
+  const button = container.querySelector('#evidence-upload');
+
+  // The real file input is hidden; the nicer-looking button opens it.
+  button.addEventListener('click', () => input.click());
+
+  input.addEventListener('change', () => {
+    const file = input.files[0];
+    input.value = ''; // so choosing the same file again still fires "change"
+    if (!file) return;
+    // Quick checks in the browser; the server checks again, since these can be bypassed.
+    if (file.size > EVIDENCE_MAX_BYTES) return toast('File must be 5 MB or smaller', true);
+    if (!EVIDENCE_ACCEPT.split(',').includes(file.type)) return toast('Only PDF or image files are allowed', true);
+
+    if (!taskId) {
+      pending.push(file);
+      return reload();
+    }
+
+    button.disabled = true;
+    button.querySelector('span').textContent = 'Uploading…';
+    safely(async () => {
+      try {
+        await uploadFile(`/tasks/${taskId}/evidence`, file);
+        toast('Evidence uploaded');
+        await reload();
+      } finally {
+        button.disabled = false;
+        button.querySelector('span').textContent = 'Upload evidence';
+      }
+    });
+  });
+
+  container.querySelector('.evidence-list').addEventListener('click', (e) => {
+    if (!e.target.closest('[data-action="delete-evidence"]')) return;
+    const item = e.target.closest('.evidence-item');
+    if (!taskId) {
+      pending.splice(Number(item.dataset.index), 1);
+      return reload();
+    }
+    const name = item.querySelector('.evidence-info a').textContent;
+    if (!confirm(`Delete the evidence "${name}"?`)) return;
+    safely(async () => {
+      await api(`/evidence/${item.dataset.id}`, { method: 'DELETE' });
+      await reload();
+    });
   });
 }
 

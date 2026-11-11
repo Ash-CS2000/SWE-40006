@@ -42,7 +42,21 @@ CREATE TABLE IF NOT EXISTS subtasks (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+-- Evidence files (PDF or image) attached to a task. The file bytes are stored
+-- in the database rather than on disk, because the app container is replaced
+-- on every deploy and anything written inside it would be lost.
+CREATE TABLE IF NOT EXISTS task_evidence (
+  id          SERIAL PRIMARY KEY,
+  task_id     INTEGER NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  filename    VARCHAR(200) NOT NULL,
+  mime_type   VARCHAR(50) NOT NULL,
+  size_bytes  INTEGER NOT NULL,
+  data        BYTEA NOT NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE INDEX IF NOT EXISTS idx_tasks_user ON tasks(user_id);
+CREATE INDEX IF NOT EXISTS idx_task_evidence_task ON task_evidence(task_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_due ON tasks(due_date) WHERE NOT completed;
 CREATE INDEX IF NOT EXISTS idx_subtasks_task ON subtasks(task_id);
 CREATE INDEX IF NOT EXISTS idx_categories_user ON categories(user_id);

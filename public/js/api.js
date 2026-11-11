@@ -12,7 +12,25 @@ async function api(path, { method = 'GET', body } = {}) {
     headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
     body: body !== undefined ? JSON.stringify(body) : undefined,
   });
+  return readApiResponse(res);
+}
 
+// Upload a file (from an <input type="file">) as the raw request body.
+// The filename goes in a header because the body is just the file's bytes.
+async function uploadFile(path, file) {
+  const res = await fetch('/api' + path, {
+    method: 'POST',
+    headers: {
+      'Content-Type': file.type || 'application/octet-stream',
+      'X-Filename': encodeURIComponent(file.name),
+    },
+    body: file,
+  });
+  return readApiResponse(res);
+}
+
+// Shared response handling for api() and uploadFile().
+async function readApiResponse(res) {
   if (res.status === 401) {
     // Session expired or signed out in another tab
     location.href = '/login';

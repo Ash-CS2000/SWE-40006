@@ -12,6 +12,7 @@ const categoryRoutes = require('./routes/categories');
 const profileRoutes = require('./routes/profile');
 const settingsRoutes = require('./routes/settings');
 const statsRoutes = require('./routes/stats');
+const { router: evidenceRoutes } = require('./routes/evidence');
 
 // This file builds the app but does not start listening (that's server.js).
 // Keeping them separate lets tests import the app directly.
@@ -72,6 +73,7 @@ app.use('/api/categories', requireAuth, categoryRoutes);
 app.use('/api/profile', requireAuth, profileRoutes);
 app.use('/api/settings', requireAuth, settingsRoutes);
 app.use('/api/stats', requireAuth, statsRoutes);
+app.use('/api/evidence', requireAuth, evidenceRoutes);
 
 app.use('/api', (req, res) => {
   res.status(404).json({ error: 'Not found' });

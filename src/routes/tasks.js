@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { PRIORITIES, parseId, validateTaskInput } = require('../utils/validation');
+const { parseUpload, uploadEvidence } = require('./evidence');
 
 const router = express.Router();
 
@@ -9,7 +10,11 @@ const TASK_SELECT = `
          t.completed_at, t.category_id, t.created_at,
          c.name AS category_name, c.color AS category_color,
          (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id)::int AS subtask_total,
-         (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.completed)::int AS subtask_done
+         (SELECT COUNT(*) FROM subtasks s WHERE s.task_id = t.id AND s.completed)::int AS subtask_done,
+         -- Evidence file names/types (not the file bytes) so the task list can show them
+         (SELECT COALESCE(json_agg(json_build_object('id', e.id, 'filename', e.filename, 'mime_type', e.mime_type)
+                                   ORDER BY e.created_at, e.id), '[]')
+          FROM task_evidence e WHERE e.task_id = t.id) AS evidence_files
   FROM tasks t
   LEFT JOIN categories c ON c.id = t.category_id`;
 
@@ -75,7 +80,13 @@ router.get('/:id', async (req, res) => {
     'SELECT id, title, completed FROM subtasks WHERE task_id = $1 ORDER BY created_at, id',
     [taskId]
   );
-  res.json({ ...task, subtasks });
+  // List evidence without the file bytes; the file itself is fetched separately.
+  const { rows: evidence } = await db.query(
+    `SELECT id, filename, mime_type, size_bytes, created_at
+     FROM task_evidence WHERE task_id = $1 ORDER BY created_at, id`,
+    [taskId]
+  );
+  res.json({ ...task, subtasks, evidence });
 });
 
 router.post('/', async (req, res) => {
@@ -160,5 +171,8 @@ router.post('/:id/subtasks', async (req, res) => {
   );
   res.status(201).json(rows[0]);
 });
+
+// Evidence files (PDF or image) attached to a task
+router.post('/:id/evidence', parseUpload, uploadEvidence);
 
 module.exports = router;
