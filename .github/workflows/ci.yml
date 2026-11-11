@@ -217,8 +217,17 @@ jobs:
         run: node --test tests/smoke-test.js
         
 
-  deploy:
+  manual-testing:
     needs: deploy-staging
+    runs-on: ubuntu-latest
+    environment:
+      name: manual-testing
+      url: ${{ vars.STAGING_URL }}
+    steps:
+      - run: echo "Manual testing approved"
+
+  deploy:
+    needs: manual-testing
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
